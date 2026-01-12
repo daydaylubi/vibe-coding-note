@@ -44,7 +44,25 @@
 ```bash
 brew install fnm
 ```
-*注意：安装后需按终端提示将初始化代码写入 `~/.zshrc`（通常为 `eval "$(fnm env --use-on-cd)"`）。*
+*注意：安装后需将初始化代码写入 `~/.zshrc`。直接在终端运行以下命令：*
+```bash
+echo 'eval "$(fnm env --use-on-cd)"' >> ~/.zshrc
+```
+
+**这一句命令的原理拆解（底层逻辑）：**
+
+1.  **启动加载 (Startup)**：当你打开一个新的终端窗口时，Zsh 会通过 `~/.zshrc` 自动触发这条命令。它的本质是让 `fnm` 介入你的终端会话。
+2.  **修改 `PATH`（最关键的一步）**：
+    -   `fnm env` 会生成一段脚本，其核心操作是修改当前终端的 **`$PATH` 环境变量**。
+    -   它会将“fnm 选中的 Node 版本路径”**插入到 `$PATH` 的最前面**。
+    -   **结果**：当你输入 `node` 时，系统会通过 `$PATH` 从前到后搜索。由于 fnm 的路径在最前面，系统会“优先加载” fnm 管理的特定版本，从而“覆盖”掉系统自带的默认 Node。
+3.  **动态劫持 (`--use-on-cd`)**：
+    -   不仅仅是启动时修改一次，这个参数还会给你的 `cd` 命令安装一个“监听器（Hook）”。
+    -   **原理**：每当你进入新目录，脚本会瞬间检查目录中的 `.node-version` 文件。如果版本变了，它会**即时更新当前终端的 `$PATH`**，将新的 Node 路径再次插入最前面。
+4.  **`eval "$( ... )"` 的角色**：
+    -   `fnm env` 只是“打印脚本内容”的文员。
+    -   `$( ... )` 负责把打印出来的内容打包。
+    -   `eval` 则是真正拥有权限的“执行官”，由它负责将这些涉及到环境变量修改的代码在当前的 Zsh 环境中运行。如果没有它，一切修改都无法影响到你当前的终端会话。
 
 **常用指令：**
 ```bash
@@ -76,12 +94,33 @@ fnm list         # 查看本地已安装的所有版本
 brew install pnpm
 ```
 
-**常用指令：**
-```bash
-pnpm add <pkg>      # 安装生产依赖
-pnpm add -D <pkg>   # 安装开发环境依赖
-pnpm install        # 根据清单安装所有依赖
-```
+**常用指令分类速查：**
+
+| 分类 | 指令 | 说明 |
+| :--- | :--- | :--- |
+| **项目初始化** | `pnpm init` | 初始化项目，生成 `package.json`。 |
+| **安装依赖** | `pnpm install` | (简写 `i`) 安装 `package.json` 中的所有依赖。 |
+| | `pnpm add <pkg>` | 安装包并写入 `dependencies`。 |
+| | `pnpm add -D <pkg>` | 安装包并写入 `devDependencies` (开发依赖)。 |
+| | `pnpm add -g <pkg>` | 全局安装包。 |
+| **移除/更新** | `pnpm remove <pkg>` | (简写 `rm`) 卸载包并从清单删除。 |
+| | `pnpm update` | (简写 `up`) 遵循版本规范更新依赖。 |
+| **执行脚本** | `pnpm <script>` | **(推荐)** 运行自定义脚本。如 `pnpm dev` 即运行 `next dev`。 |
+| | `pnpm run <script>`| 通用写法。当脚本名与内置命令冲突时需使用（见下文）。 |
+| **现代执行器** | `pnpm exec <bin>` | 运行项目本地安装的工具二进制文件。 |
+| | `pnpm dlx <pkg>` | 下载并运行临时包，不安装到项目环境。 |
+| | `pnpm create <pkg>`| 调用脚手架初始化项目（如 `pnpm create vite`）。 |
+| **查询/诊断** | `pnpm list` | (简写 `ls`) 列出当前项目安装的所有依赖。 |
+| | `pnpm outdated` | 检查是否有依赖可以更新。 |
+| | `pnpm why <pkg>` | 查看某个包被安装的原因（依赖溯源）。 |
+| **管理与维护** | `pnpm store prune` | **(核心)** 清理全局存储中不再被使用的包，释放空间。 |
+| | `pnpm prune` | 移除 `node_modules` 中未在 `package.json` 定义的包。 |
+| | `pnpm import` | 从 `npm` 或 `yarn` 的锁定文件生成 `pnpm-lock.yaml`。 |
+
+> **💡 关于指令简写**：
+> 在 pnpm 中，绝大多数脚本可以直接用 `pnpm <name>` 运行。只有当你的脚本名与内置名冲突（例如你有个脚本叫 `install`）时，才必须补全 `run`。
+
+> **提示**：更多关于 `exec`、`dlx` 和 `create` 的深度用法与心智模型，请参阅 **第 3.3 节**。
 
 ---
 
@@ -114,13 +153,50 @@ pnpm install        # 根据清单安装所有依赖
 | 场景 | 过时/错误做法 | **现代化做法 (pnpm)** |
 | :--- | :--- | :--- |
 | **执行临时命令** (未安装过的) | `npx vite` | `pnpm dlx vite` |
+| **初始化项目/脚手架** | `npm init next-app` | `pnpm create next-app` |
 | **执行已安装的本地工具** | `npx vitest` | `pnpm exec vitest` |
 
 - **`pnpm dlx`**：用于运行你**不想安装**到项目里的包（即用即走，瞬移执行）。
+- **`pnpm create`**：**`pnpm dlx` 的脚手架快捷方式**。它会自动补全 `create-` 前缀，例如 `pnpm create next-app` 等同于运行 `pnpm dlx create-next-app`。
 - **`pnpm exec`**：用于运行已经通过 `pnpm add -D` **安装在项目里**的工具。
 
-> **💡 行业洞见：为什么不推荐在 pnpm 项目中用 npx？**
-> 虽然 `npx` 是行业标准，但它会绕过 pnpm 的全局硬链接仓库去重复下载或查缓存。使用 `pnpm dlx/exec` 能复用全局硬链接，不仅极致省空间，而且速度快得惊人。
+> **💡 行业洞见：既然 npx 也是临时执行，为什么还要换成 pnpm？**
+> 这是一个非常深刻的问题。虽然两者在“执行完不持久化”这一点上目标一致，但底层效率有巨大差异：
+> 1.  **全局存储复用（核心）**：`npx` 会把下载的东西塞进 `~/.npm/_npx`。它完全不认识 `pnpm` 的仓库。如果你用 `pnpm dlx`，它会优先检查 `pnpm` 的全局硬链接仓库。如果这个工具已经存在于你电脑里的某个项目中，`pnpm dlx` 几乎是秒开，因为它不需要重新下载，直接建立硬链接即可。
+> 2.  **避免“磁盘双重征收”**：用 `npx` 意味着你电脑里可能会存两份代码：一份在 `npm` 的缓存里，一份在 `pnpm` 的仓库里。使用 `pnpm dlx` 能确保你全套工作流共享同一个物理存储系统。
+> 3.  **本地执行的严谨性**：对于“本地已安装”的工具，使用 `pnpm exec` 能确保它是通过项目的 `node_modules` 拓扑结构寻找二进制文件的。`npx` 有时会迷路，或者误导你运行了一个全局的、版本不一致的同名工具。
+> 4.  **一致的心智模型**：既然你选择了 `pnpm` 管理项目，那么 `dlx/exec` 就能保证从下载、到硬链接加载、再到最终执行，全都跑在 `pnpm` 这一套高性能逻辑上，没有中间商（npm）赚差价（占磁盘/耗带宽）。
+
+### 3.4 核心辨析：别名脚本 (scripts) vs 二进制执行 (exec)
+
+很多开发者在面对 `package.json` 中的 `scripts` 时会感到困惑：我该用 `pnpm dev` 还是 `pnpm exec dev`？
+
+例如，在一个典型的 Next.js 项目中，`package.json` 包含如下配置：
+```json
+{
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "lint": "next lint"
+  }
+}
+```
+
+**结论：直接使用 `pnpm dev`。**
+
+理解这三者的关系：
+
+| 命令 | 行为模式 | 示例场景 |
+| :--- | :--- | :--- |
+| **`pnpm <name>`** | **执行别名**。寻找 `scripts` 里的定义。 | `pnpm dev` (运行 `next dev`) |
+| **`pnpm exec <bin>`** | **执行工具**。直接运行 `node_modules` 里的程序。 | `pnpm exec next dev` (不看 scripts) |
+| **`pnpm dlx <pkg>`** | **执行临时工具**。下载、运行、然后消失。 | `pnpm dlx create-next-app` |
+
+**底层逻辑：**
+- `scripts` 是项目内置的**“快捷方式”**。如果 `package.json` 里写了 `"dev": "next dev"`，那么 `pnpm dev` 就是在调用这个快捷方式。
+- `pnpm exec` 是**“暴力寻找”**。它不关心你有没有定义快捷方式，它直接去项目的工具库（`.bin` 目录）里找 `next` 这个程序。
+- **注意**：`pnpm exec dev` 会报错，因为你的工具库里没有一个叫 `dev` 的程序，`dev` 只是一个自定义的名字。
 
 ---
 
@@ -128,28 +204,51 @@ pnpm install        # 根据清单安装所有依赖
 
 ### 4.1 面向项目工程 (Project Engineering)
 
-请肌肉记忆般地按照以下四步开启任何 JS 项目：
+根据项目类型的不同，我们的“起手式”需要采取截然不同的策略。
 
-**第一步：初始化并确定版本**
-```bash
-fnm use 20                   # 切换版本
-node -v > .node-version      # 锁定项目版本环境
-pnpm init                    # 初始化项目清单
-```
-*   **原理**：`.node-version` 配合 `fnm` 实现目录自动切换 Node 版本。在 `package.json` 中添加 `"type": "module"` 开启 ESM 现代化语法。
+#### 4.1.1 场景一：前端现代化工程 (Scaffold-oriented)
+现代前端由于涉及极其复杂的编译链路（Vite, TS, Tailwind, ESLint, PostCSS），**从零通过 `pnpm init` 手动配置几乎是不现实的**。
+**核心心智：脚手架先行，环境锚定在后。**
 
-**第二步：配置环境强保障**
-在 `package.json` 中配置 `"engines": { "node": ">=20" }`。这是给 CI/CD 和包管理器的双重保险，配合 pnpm 的 `engine-strict` 设置，可以彻底杜绝环境不兼容。
+1.  **一键生成项目**：
+    ```bash
+    pnpm create next-app      # 创建 Next.js
+    # 或
+    pnpm create vite          # 创建 Vite (React/Vue/Svelte)
+    ```
+2.  **立即执行环境锁定**：
+    进入项目目录后，第一时间运行：
+    ```bash
+    node -v > .node-version   # 强制 fnm 锁定当前 Node 版本
+    ```
+3.  **标准化补全**：
+    检查 `package.json`，确保已包含 `"type": "module"` (现代 ESM 标准) 并添加 `engines` 限制。
 
-**第三步：安装依赖库并锁定**
-```bash
-pnpm add axios dayjs         # 业务代码需要的库
-pnpm add -D vitest prettier  # 仅开发测试时需要的工具
-```
-*   **核心产物**：`pnpm-lock.yaml` 是项目的“精确基因图谱”，必须提交到 Git，确保团队协作时每个人手中的版本分毫不差。
+#### 4.1.2 场景二：后端工程 (Framework vs. Minimalist)
+后端开发目前呈现明显的“五五开”局面，策略需按派系选择：
 
-**第四步：现代化运行控制**
-在 `scripts` 中配置快捷命令，使用 `pnpm start` 运行项目。
+**A. 重型框架派 (Enterprise Grade, e.g., NestJS)**
+适合复杂业务、多人协作。拥有严谨的架构约定和自带的 CLI。
+- **最佳实践**：使用专用脚手架，保持全家桶的一致性。
+  ```bash
+  pnpm dlx @nestjs/cli new my-api-service
+  ```
+
+**B. 轻型自由派 (Minimalist, e.g., Hono, Fastify, Express)**
+适合追求极致性能、Serverless 部署或简单的 API 桥接。
+- **最佳实践**：**“手动初始化 + 组件化组装”**。
+  ```bash
+  mkdir my-hono-app && cd my-hono-app
+  fnm use 20 && node -v > .node-version  # 先定版本
+  pnpm init                              # 初始化清单
+  pnpm add hono                          # 按需引入核心
+  pnpm add -D typescript @types/node     # 手动按需添加工程化工具
+  ```
+
+#### 4.1.3 通用原则：无论哪一派，都要“三防”
+1.  **防环境污染**：禁止全局保存包，全部依赖必须进入 `package.json`。
+2.  **防版本漂移**：`pnpm-lock.yaml` 必须提交 Git，它是项目的“数字指纹”。
+3.  **防引擎冲突**：在 `package.json` 中配置 `engines`，并在 `.npmrc` 中设置 `engine-strict=true`。
 
 ---
 
